@@ -1,0 +1,25 @@
+ld-preload-example
+
+This example demostrates how to use dynamic loading to wrap library functions.
+
+demo-dlsym.c shows a simple usage of the "dlsym" function to obtain references
+to functions and then call them.
+
+leak.c: is a small program which calls malloc and free, and leaks memory.
+
+tracking-malloc.c: implements wrapper versions of malloc and free, and tracks
+the number of bytes allocated and freed.
+
+The leak program can be build directly using the tracking-malloc.o file:
+	gcc -c -std=c89 -g -Wall -Wextra -Werror -o tracking-malloc.o \
+		tracking-malloc.c -ldl
+	gcc -std=c89 -g -Wall -Wextra -Werror -o tracking-malloc-leak \
+		tracking-malloc.o leak.c -ldl
+	./tracking-malloc-leak
+
+Alternatively, we can use LD_LIBRARY_PATH and LD_PRELOAD to make the leak
+program call the wrapper versions of malloc/free:
+	gcc -std=c89 -g -Wall -Wextra -Werror -o leak leak.c
+	gcc -std=c89 -g -Wall -Wextra -Werror -rdynamic -fPIC -shared \
+		-o libtracking-malloc.so tracking-malloc.c -ldl
+	LD_LIBRARY_PATH="." LD_PRELOAD=libtracking-malloc.so ./leak

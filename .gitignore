@@ -1,2 +1,6 @@
 demo-dlsym
+leak
+tracking-malloc-leak
+*.so
+*.o
 *~
