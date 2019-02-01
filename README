@@ -22,7 +22,10 @@ leak program call the wrapper versions of malloc/free:
 	gcc -std=c89 -g -Wall -Wextra -Werror -o leak leak.c
 	gcc -std=c89 -g -Wall -Wextra -Werror -rdynamic -fPIC -shared \
 		-o libtracking-malloc.so tracking-malloc.c -ldl
-	LD_LIBRARY_PATH="." LD_PRELOAD=libtracking-malloc.so ./leak
+	TRACKING_MALLOC_ENABLE=1 \
+		LD_LIBRARY_PATH="." \
+		LD_PRELOAD=libtracking-malloc.so \
+		./leak
 
 =============================================================================
 
@@ -39,11 +42,11 @@ eric@dione:~/src/ld-preload-example$ valgrind ./leak
 ==2425==
 ==2425==
 ==2425== HEAP SUMMARY:
-==2425==     in use at exit: 84 bytes in 2 blocks
-==2425==   total heap usage: 4 allocs, 2 frees, 168 bytes allocated
+==2425==     in use at exit: 42 bytes in 1 blocks
+==2425==   total heap usage: 6 allocs, 5 frees, 380 bytes allocated
 ==2425==
 ==2425== LEAK SUMMARY:
-==2425==    definitely lost: 84 bytes in 2 blocks
+==2425==    definitely lost: 42 bytes in 1 blocks
 ==2425==    indirectly lost: 0 bytes in 0 blocks
 ==2425==      possibly lost: 0 bytes in 0 blocks
 ==2425==    still reachable: 0 bytes in 0 blocks
@@ -54,29 +57,32 @@ eric@dione:~/src/ld-preload-example$ valgrind ./leak
 ==2425== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
 eric@dione:~/src/ld-preload-example$
 eric@dione:~/src/ld-preload-example$ make tracking-malloc-leak
-gcc -c -std=c89 -g -Wall -Wextra -Werror \
-	-o tracking-malloc.o tracking-malloc.c \
-	-ldl
-gcc -std=c89 -g -Wall -Wextra -Werror tracking-malloc.o leak.c \
-	-o tracking-malloc-leak -ldl
-eric@dione:~/src/ld-preload-example$
+gcc -c -std=c89 -g -Wall -Wextra -Werror -o tracking-malloc.o tracking-malloc.c -ldl
+gcc -std=c89 -g -Wall -Wextra -Werror -o tracking-malloc-leak tracking-malloc.o leak.c -ldl
 eric@dione:~/src/ld-preload-example$ ./tracking-malloc-leak
+eric@dione:~/src/ld-preload-example$ TRACKING_MALLOC_ENABLE=1 ./tracking-malloc-leak
 + 42
+- 42
++ 126
+- 126
 + 42
 + 42
 - 42
-+ 42
-- 42
++ 43
+- 43
 eric@dione:~/src/ld-preload-example$
 eric@dione:~/src/ld-preload-example$ make libtracking-malloc.so
-gcc -std=c89 -g -Wall -Wextra -Werror -rdynamic -fPIC -shared \
-	-o libtracking-malloc.so tracking-malloc.c \
-	-ldl
+gcc -std=c89 -g -Wall -Wextra -Werror -rdynamic -fPIC -shared -o libtracking-malloc.so tracking-malloc.c -ldl
 eric@dione:~/src/ld-preload-example$ LD_LIBRARY_PATH="." LD_PRELOAD=libtracking-malloc.so ./leak
+eric@dione:~/src/ld-preload-example$ TRACKING_MALLOC_ENABLE=1 \
+> LD_LIBRARY_PATH="." LD_PRELOAD=libtracking-malloc.so ./leak
 + 42
+- 42
++ 126
+- 126
 + 42
 + 42
 - 42
-+ 42
-- 42
++ 43
+- 43
 eric@dione:~/src/ld-preload-example$
