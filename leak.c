@@ -11,15 +11,20 @@ int main(int argc, char **argv)
 	unsigned i, goods, leaks;
 	size_t size;
 
-	leaks = (argc > 1) ? (unsigned)atoi(argv[1]) : 2;
+	leaks = (argc > 1) ? (unsigned)atoi(argv[1]) : 1;
 	goods = (argc > 2) ? (unsigned)atoi(argv[2]) : 2;
 	size = (argc > 3) ? (unsigned)atoi(argv[3]) : 42;
 
 	for (i = 0; i < leaks; ++i) {
-		ptr = malloc(size);
+		ptr = malloc(0);
+		ptr = realloc(ptr, size);
+		ptr = realloc(ptr, size * (i + 3));
+		if (size > i) {
+			ptr = realloc(ptr, size - i);
+		}
 	}
 	for (i = 0; i < goods; ++i) {
-		ptr = malloc(size);
+		ptr = calloc(2, size + i);
 		free(ptr);
 	}
 	return 0;

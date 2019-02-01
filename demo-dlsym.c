@@ -26,7 +26,7 @@ void *get_func_or_die(const char *func_name)
 	exit(1);
 }
 
-typedef void *(*malloc_func) (size_t size);
+typedef void *(*malloc_func)(size_t size);
 typedef void (*free_func) (void *ptr);
 
 int main(int argc, char **argv)
@@ -38,7 +38,7 @@ int main(int argc, char **argv)
 
 	size = (argc > 1) ? (unsigned)atoi(argv[1]) : sizeof(void *);
 
-	real_malloc = (malloc_func) get_func_or_die("malloc");
+	real_malloc = (malloc_func)get_func_or_die("malloc");
 
 	ptr = (*real_malloc) (size);
 	printf("real_malloc returned %p for size: %lu\n", ptr, size);
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	real_free = (free_func) get_func_or_die("free");
+	real_free = (free_func)get_func_or_die("free");
 	(*real_free) (ptr);
 	printf("real_free complete\n");
 
