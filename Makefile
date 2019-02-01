@@ -64,9 +64,9 @@ valgrind: check
 
 check: all
 	./demo-dlsym
-	./leak
 	./tracking-malloc-leak
 	TRACKING_MALLOC_ENABLE=1 ./tracking-malloc-leak
+	./leak
 	LD_LIBRARY_PATH="." LD_PRELOAD=libtracking-malloc.so ./leak
 	TRACKING_MALLOC_ENABLE=1 \
 		LD_LIBRARY_PATH="." \
