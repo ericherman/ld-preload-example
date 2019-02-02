@@ -4,7 +4,7 @@
 
 #define _GNU_SOURCE		/* RTLD_NEXT */
 
-#include <stdio.h>		/* FILE printf stderr */
+#include <stdio.h>		/* snprintf */
 #include <string.h>		/* memcpy memset */
 #include <dlfcn.h>		/* dlsym */
 #include <unistd.h>		/* write */
@@ -27,16 +27,42 @@ typedef void *(*realloc_func)(void *ptr, size_t size);
 typedef void *(*reallocarray_func)(void *ptr, size_t nmemb, size_t size);
 typedef void (*free_func) (void *ptr);
 
+/* global variables */
+malloc_func real_malloc;
+calloc_func real_calloc;
+realloc_func real_realloc;
+free_func real_free;
+
+/* In a few situations dlsym can allocate a byte or a small buffer
+ * to avoid issues with recursion, reserve a few static bytes for
+ * use for this. Should this turn out to be insufficient, it can
+ * be made more real. At the moment, the program simply exits if
+ * more than a total of 1k is allocated by dlsym. */
+unsigned char dlsym_recursion_avoidance_buffer[1024];
+const size_t Dlsym_recursion_avoidance_buffer_len = 1024;
+size_t dlsym_recursion_avoidance_buffer_used = 0;
+
 #define NOP ((void)0)
 
 #if SILENT
-#define Log_error3(msg, a, b, c) NOP
-#define Log_error5(msg, a, b, c, d, e) NOP
-#define Log_msg2(msg, a, b) NOP
+#define Log_error0(buf);
+#define Log_error3(buf, len, msg, a, b, c) NOP
+#define Log_error5(buf, len, msg, a, b, c, d, e) NOP
+#define Log_msg2(buf, len, msg, a, b) NOP
 #else /* not SILENT */
-#define Log_error3(msg, a, b, c) fprintf(stderr, msg, a, b, c)
-#define Log_error5(msg, a, b, c, d, e) fprintf(stderr, msg, a, b, c, d, e)
-#define Log_msg2(msg, a, b) fprintf(stderr, msg, a, b)
+#define Log_error0(buf) write(2, buf, strlen(buf))
+#define Log_error3(buf, len, msg, a, b, c) do { \
+		snprintf(buf, len, msg, a, b, c); \
+		write(2, buf, strlen(buf)); \
+	} while (0)
+#define Log_error5(buf, len, msg, a, b, c, d, e) do { \
+		snprintf(buf, len, msg, a, b, c, d, e); \
+		write(2, buf, strlen(buf)); \
+	} while (0)
+#define Log_msg2(buf, len, msg, a, b) do { \
+		snprintf(buf, len, msg, a, b); \
+		write(2, buf, strlen(buf)); \
+	} while (0)
 #endif /* SILENT */
 
 #if TRACE
@@ -49,15 +75,15 @@ typedef void (*free_func) (void *ptr);
 #define trace0(msg) NOP
 #endif
 
-static void *get_func_or_die(const char *file_name, int line_num,
+static void *get_func_or_die(const char *file_name, int line_num, int first,
 			     const char *func_name, void *wrapper_address)
 {
 	char *dlerror_msg;
 	void *handle;
 	void *ptr;
+	char buf[80];
 
-	/* handle = RTLD_DEFAULT; */
-	handle = RTLD_NEXT;
+	handle = (first) ? RTLD_DEFAULT : RTLD_NEXT;
 	dlerror();
 	ptr = dlsym(handle, func_name);
 	if ((ptr) && (ptr != wrapper_address)) {
@@ -65,19 +91,19 @@ static void *get_func_or_die(const char *file_name, int line_num,
 	}
 
 	if (ptr == wrapper_address) {
-		Log_error3("%s:%d dlsym returned the same function for %s\n",
+		Log_error3(buf, 80,
+			   "%s:%d dlsym returned the same function for %s\n",
 			   file_name, line_num, func_name);
 	}
-
 	dlerror_msg = dlerror();
-	Log_error5("%s:%d: dlerror: %s, dlsym returned %p for '%s'\n",
+	Log_error5(buf, 80, "%s:%d: dlerror: %s, dlsym returned %p for '%s'\n",
 		   file_name, line_num, dlerror_msg, ptr, func_name);
 
 	exit(1);
 }
 
-#define Get_func_or_die(fname, wrapper) \
-	get_func_or_die(__FILE__, __LINE__, fname, wrapper)
+#define Get_func_or_die(first, fname, wrapper) \
+	get_func_or_die(__FILE__, __LINE__, first, fname, wrapper)
 
 static void *get_real_ptr(void *ptr, size_t *size)
 {
@@ -100,17 +126,18 @@ static void *get_real_ptr(void *ptr, size_t *size)
 
 static void contidional_track_memory(char v, size_t size)
 {
+	char buf[40];
 	char *track;
 
 	track = secure_getenv("TRACKING_MALLOC_ENABLE");
 	if (track && strlen(track) && track[0] == '1') {
-		Log_msg2("%c %lu\n", v, size);
+		Log_msg2(buf, 40, "%c %lu\n", v, size);
 	}
 }
 
 void *malloc(size_t size)
 {
-	malloc_func real_malloc;
+	static int inside_dlsym = 0;
 	unsigned char *real_ptr;
 	void *ptr;
 	size_t real_size;
@@ -121,7 +148,25 @@ void *malloc(size_t size)
 		return NULL;
 	}
 
-	real_malloc = (malloc_func)Get_func_or_die("malloc", malloc);
+	if (!real_malloc) {
+		if (!inside_dlsym) {
+			inside_dlsym = 1;
+			real_malloc =
+			    (malloc_func)Get_func_or_die(0, "malloc", malloc);
+		} else {
+			dlsym_recursion_avoidance_buffer_used += size;
+			if (dlsym_recursion_avoidance_buffer_used >
+			    Dlsym_recursion_avoidance_buffer_len) {
+				exit(1);
+			}
+
+			ptr =
+			    (void *)(dlsym_recursion_avoidance_buffer +
+				     dlsym_recursion_avoidance_buffer_used);
+
+			return ptr;
+		}
+	}
 
 	real_size = sizeof(size_t) + size;
 
@@ -153,7 +198,7 @@ void *memset_calloc(size_t nmemb, size_t size)
 
 void *calloc(size_t nmemb, size_t size)
 {
-	calloc_func real_calloc;
+	static int inside_dlsym = 0;
 	unsigned char *real_ptr;
 	size_t real_size;
 	void *ptr;
@@ -164,8 +209,26 @@ void *calloc(size_t nmemb, size_t size)
 		return NULL;
 	}
 
-	real_calloc = calloc;
-	real_calloc = (calloc_func)Get_func_or_die("calloc", real_calloc);
+	if (!real_calloc) {
+		if (!inside_dlsym) {
+			inside_dlsym = 1;
+			real_calloc =
+			    (calloc_func)Get_func_or_die(0, "calloc", calloc);
+		} else {
+			dlsym_recursion_avoidance_buffer_used += size;
+			if (dlsym_recursion_avoidance_buffer_used >
+			    Dlsym_recursion_avoidance_buffer_len) {
+				exit(1);
+			}
+
+			ptr =
+			    (void *)(dlsym_recursion_avoidance_buffer +
+				     dlsym_recursion_avoidance_buffer_used);
+
+			memset(ptr, 0x00, size);
+			return ptr;
+		}
+	}
 
 	real_size = sizeof(size_t) + (nmemb * size);
 
@@ -185,7 +248,7 @@ void *calloc(size_t nmemb, size_t size)
 
 void *realloc(void *ptr, size_t new_size)
 {
-	realloc_func real_realloc;
+	static int inside_dlsym = 0;
 	void *real_old_ptr;
 	void *new_ptr;
 	unsigned char *real_new_ptr;
@@ -199,7 +262,17 @@ void *realloc(void *ptr, size_t new_size)
 		return NULL;
 	}
 
-	real_realloc = (realloc_func)Get_func_or_die("realloc", realloc);
+	if (!real_realloc) {
+		if (!inside_dlsym) {
+			inside_dlsym = 1;
+			real_realloc =
+			    (realloc_func)Get_func_or_die(0, "realloc",
+							  realloc);
+		} else {
+			Log_error0("realloc recursion?\n");
+			exit(0);
+		}
+	}
 
 	if (ptr) {
 		real_old_ptr = get_real_ptr(ptr, &old_size);
@@ -234,9 +307,23 @@ void *reallocarray(void *ptr, size_t nmemb, size_t size)
 	return realloc(ptr, nmemb * size);
 }
 
+static int inside_dlsym_recursion_avoidance_buffer(void *ptr)
+{
+	unsigned long lptr, lbuf, lbuf_max;
+
+	lptr = (unsigned long)ptr;
+	lbuf = (unsigned long)dlsym_recursion_avoidance_buffer;
+	lbuf_max = lbuf + Dlsym_recursion_avoidance_buffer_len;
+
+	if ((lptr >= lbuf) && (lptr < lbuf_max)) {
+		return 1;
+	}
+
+	return 0;
+}
+
 void free(void *ptr)
 {
-	free_func real_free;
 	void *real_ptr;
 	size_t size;
 
@@ -245,8 +332,14 @@ void free(void *ptr)
 	if (ptr == NULL) {
 		return;
 	}
+	if (inside_dlsym_recursion_avoidance_buffer(ptr)) {
+		/* ignore it */
+		return;
+	}
 
-	real_free = (free_func)Get_func_or_die("free", free);
+	if (!real_free) {
+		real_free = (free_func)Get_func_or_die(0, "free", free);
+	}
 
 	real_ptr = get_real_ptr(ptr, &size);
 
