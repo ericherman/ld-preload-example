@@ -62,16 +62,21 @@ valgrind: check
 	@echo
 	valgrind ./leak
 
-check: all
+check: all no-leak.pl
 	./demo-dlsym
 	./tracking-malloc-leak
 	TRACKING_MALLOC_ENABLE=1 ./tracking-malloc-leak
 	./leak
 	LD_LIBRARY_PATH="." LD_PRELOAD=libtracking-malloc.so ./leak
+	@echo
 	TRACKING_MALLOC_ENABLE=1 \
 		LD_LIBRARY_PATH="." \
 		LD_PRELOAD=libtracking-malloc.so \
 		./leak
+	@echo
+	LD_LIBRARY_PATH="." \
+		LD_PRELOAD=libtracking-malloc.so \
+		perl ./no-leak.pl
 
 tidy:
 	$(LINDENT) $(C_STD_TYPES) $(LOCAL_TYPES) \
